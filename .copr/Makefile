@@ -15,7 +15,17 @@
 
 outdir ?= $(CURDIR)/build/srpm/SRPMS
 
+# VERSION is optional. Left unset, the repository Makefile derives it from the
+# latest git tag, which is what a COPR SCM build gets. A caller that builds a
+# specific version passes it in explicitly:
+#
+#   make -f .copr/Makefile srpm outdir=/tmp/out VERSION=1.2.3
+#
+# That is the path a manually dispatched workflow takes, where the version comes
+# from the dispatch input rather than from whatever the clone happens to contain.
+VERSION ?=
+
 .PHONY: srpm
 srpm:
 	dnf -y install golang git make rpm-build tar gzip
-	$(MAKE) srpm SRPM_OUTPUT_DIR="$(outdir)"
+	$(MAKE) srpm SRPM_OUTPUT_DIR="$(outdir)" $(if $(VERSION),VERSION="$(VERSION)")

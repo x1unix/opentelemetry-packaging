@@ -120,6 +120,11 @@ check-rpmbuild-installed:
 # validator from it, so vendoring keeps that step independent of the module
 # proxy. Sources are selected with git, so what lands in the tarball is the
 # working tree minus everything .gitignore excludes.
+#
+# Untracked files are included on purpose, so a local SRPM can be built from
+# work in progress. .gitignore is therefore the only thing keeping scratch out
+# of the tarball — anything that must never ship belongs in it. A COPR build is
+# unaffected either way: it runs from a clean clone.
 .PHONY: srpm-sources
 srpm-sources:
 	@set -e; \
@@ -159,11 +164,17 @@ srpm: check-rpmbuild-installed srpm-sources
 # repository would break git inside it whenever the checkout is a worktree,
 # whose .git is a pointer to a path outside the mount, and the sources are
 # already assembled by then anyway.
+#
+# No --platform either: a source RPM carries no compiled artifact and is
+# identical on every architecture, so pinning the platform would only drag an
+# ARCH=arm64 build through qemu — where rpmbuild is known to fail on its own
+# (tar: Function not implemented) for reasons that have nothing to do with the
+# packaging.
 SRPM_CONTAINER_IMAGE ?= fedora:latest
 
 .PHONY: srpm-container
 srpm-container: srpm-sources
-	$(CONTAINER_ENGINE) run --rm --platform linux/$(ARCH) \
+	$(CONTAINER_ENGINE) run --rm \
 		-v $(SRPM_DIR):/srpm:z -w /srpm $(SRPM_CONTAINER_IMAGE) \
 		bash -c 'dnf install -q -y rpm-build > /dev/null \
 			&& rpmbuild -bs /srpm/SPECS/$(SRPM_NAME).spec --define "_topdir /srpm" \

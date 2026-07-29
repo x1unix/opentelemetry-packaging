@@ -110,8 +110,14 @@ Recommends:     {{ .Name }}
 %build
 # Built from the vendored module cache in the source tarball, so the buildroot
 # needs no network access for the Go dependencies.
+#
+# GOTOOLCHAIN=local pins that: without it, a go directive newer than the
+# chroot's Go silently downloads a toolchain, which turns this into a network
+# operation and fails outright once the build is hermetic. Pinned, the same
+# mismatch is a clear error naming both versions.
 export CGO_ENABLED=0
 export GOFLAGS="-mod=vendor"
+export GOTOOLCHAIN=local
 go build -trimpath -o build/bin/build-packages ./cmd/build-packages
 go build -trimpath -o build/bin/otel-config-check ./cmd/otel-config-check
 

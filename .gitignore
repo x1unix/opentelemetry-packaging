@@ -19,6 +19,7 @@ obj/
 docs/notes/
 docs/plans/
 docs/brainstorms/
+/.plans/
 
 # Stray root build artifact from direct otel-config-check builds
 /otel-config-check
