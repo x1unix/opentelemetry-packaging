@@ -6,12 +6,14 @@
 - **npm** (needed to fetch the Node.js auto-instrumentation agent from the npm registry)
 - **Python 3 with pip** (needed to fetch the Python auto-instrumentation packages; invoked as `python3 -m pip`)
 - **A container engine** (Podman or Docker — needed for local repository generation and integration tests)
+- **rpmbuild** (only to assemble a source RPM for the COPR build; `make srpm-container` runs it in a container instead)
 
 No Ruby, FPM, or special Docker images are required to build packages.
 
 ## Repository layout
 
 ```
+.copr/Makefile               COPR SCM build entry point; hands over to the srpm target
 cmd/build-packages/          CLI entry point for building .deb and .rpm packages
 cmd/otel-config-check/       Declarative-config validator shipped inside the Python package
 packaging/
@@ -97,6 +99,20 @@ go run ./cmd/build-packages -version 1.0.0 -arch amd64 -component injector -stag
 
 Staging materializes the component's `files.Contents` into the buildroot and writes the matching `%files` fragment, so the file lists and the packaged tree come from one traversal and cannot disagree.
 The generated spec is never committed, and never edited by hand.
+
+Both steps are wrapped by the source RPM targets, which is how COPR reaches them:
+
+```sh
+make srpm
+```
+
+That renders the spec, exports the working tree with its Go module dependencies vendored, and runs `rpmbuild -bs`.
+`make srpm-sources` stops after the tarball, and needs no rpm tooling at all.
+On a host without `rpmbuild` — anything other than an RPM-based distribution — the container target stages the sources natively and runs only `rpmbuild` in a Fedora container:
+
+```sh
+make srpm-container
+```
 
 ### Upstream version pins
 

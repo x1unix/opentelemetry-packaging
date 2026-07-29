@@ -14,6 +14,10 @@ make rpm-packages              # Build RPM packages only
 make deb-package-<component>   # Build a single DEB (injector, java, nodejs, dotnet, meta)
 make rpm-package-<component>   # Build a single RPM
 
+make srpm                      # Build the source RPM for COPR (needs rpmbuild)
+make srpm-sources              # Generate the spec + source tarball only (no rpm tooling)
+make srpm-container            # Assemble the source RPM in a Fedora container
+
 make go-unit-tests             # Go command unit tests (otel-config-check)
 make python-unit-tests         # sitecustomize.py unit tests (throwaway venv, no containers)
 make pyproto-unit-tests        # Vendored pyproto exporter test suites (throwaway venvs, no containers)
@@ -30,6 +34,7 @@ make clean                     # Remove build/
 
 ## Architecture at a glance
 
+- `.copr/Makefile` — COPR SCM build entry point; hands over to the `srpm` target
 - `cmd/build-packages/` — CLI entry point; calls `packaging/builder/`
 - `cmd/otel-config-check/` — declarative-config validator, cross-compiled into the Python package and invoked by sitecustomize.py
 - `packaging/builder/` — Go package that constructs nfpm.Info per component and writes .deb/.rpm
@@ -44,6 +49,7 @@ make clean                     # Remove build/
 ## Coding conventions
 
 - Package creation is pure Go via nfpm. Do not introduce shell-based build scripts or Docker build containers for package creation.
+- The COPR path is the one exception, and only because mock accepts nothing but a source RPM: there, rpmbuild packages the payload. It stays honest by generating both the spec and the `%files` lists from the same `Component` metadata (`packaging/builder/{spec,stage}.go`), so add package metadata in `components.go` and nowhere else.
 - Lifecycle scripts (`packaging/common/scripts/`) must use only POSIX shell builtins — no `grep`, `sed`, or other external commands.
 - Metadata tests use `pault.ag/go/debian` and `cavaliergopher/rpm` to parse packages natively. Do not shell out to `dpkg-deb` or `rpm` CLI tools in tests.
 - Man pages use section 8 (system administration).
