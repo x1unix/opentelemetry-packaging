@@ -19,20 +19,22 @@ on:
         description: "Branch, tag, or commit COPR should build (defaults to this workflow run ref)"
         required: false
         type: string
-      project:
-        description: "Target COPR project, as owner/project"
-        required: false
-        default: "x1unix/opentelemetry-packaging"
-        type: string
 
 permissions:
   contents: read
+
+env:
+  COPR_OWNER: x1unix
+  COPR_PROJECT_NAME: opentelemetry-packaging
+  CUSTOM_DOMAIN: https://otel.pkg.x1unix.dev
 
 jobs:
   copr-build:
     runs-on: ubuntu-24.04
     container:
       image: registry.fedoraproject.org/fedora@sha256:cffa25ae42f013b76653abd96137c05c776cd6e6bc1ac4a79290296ff42cbc7b # fedora:44
+    outputs:
+      build-id: ${{ steps.submit.outputs.build-id }}
     steps:
       # COPR clones sources itself, thus repo checkout isn't needed.
       - name: Install copr-cli
@@ -53,20 +55,22 @@ jobs:
           chmod 600 ~/.config/copr
 
       # Event-controlled values go through env rather than inline interpolation.
-      # The inputs are empty on a release event, hence the fallbacks: the
-      # workflow_dispatch default does not apply to other triggers.
+      # COPR_OWNER/COPR_PROJECT_NAME come from the workflow-level env block,
+      # concatenated here since copr-cli wants a single owner/project
+      # argument. The committish input is empty on a release event, hence
+      # the fallback.
       - name: Submit the build
         id: submit
         env:
-          PROJECT: ${{ inputs.project || 'x1unix/opentelemetry-packaging' }}
           COMMITTISH: ${{ inputs.committish || github.event.release.tag_name || github.ref_name }}
           CLONE_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
           set -o pipefail
-          echo "Building ${CLONE_URL} at ${COMMITTISH} in ${PROJECT}"
+          project="${COPR_OWNER}/${COPR_PROJECT_NAME}"
+          echo "Building ${CLONE_URL} at ${COMMITTISH} in ${project}"
           # --nowait returns as soon as the build is queued; the wait below
           # inspects every chroot rather than only the aggregate state.
-          copr-cli buildscm "${PROJECT}" \
+          copr-cli buildscm "${project}" \
             --clone-url "${CLONE_URL}" \
             --commit "${COMMITTISH}" \
             --method make_srpm \
@@ -116,3 +120,32 @@ jobs:
             fi
           done
           exit "${failed}"
+
+  # Mirrors the build's RPMs into the R2 bucket behind the custom domain; see
+  # .plans/copr-custom-domain-blob-mirror.md. Runs after every successful
+  # copr-build, on both triggers this workflow supports (release,
+  # workflow_dispatch) -- a workflow_dispatch run publishes to the live
+  # bucket just like a release does.
+  publish:
+    needs: copr-build
+    runs-on: ubuntu-24.04
+    container:
+      image: registry.fedoraproject.org/fedora@sha256:cffa25ae42f013b76653abd96137c05c776cd6e6bc1ac4a79290296ff42cbc7b # fedora:44
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install publish dependencies
+        run: |
+          dnf install --assumeyes --setopt=install_weak_deps=False \
+            copr-cli rpm createrepo_c jq gnupg2 curl rclone
+          rclone version
+
+      - name: Publish to R2
+        env:
+          BUILD_ID: ${{ needs.copr-build.outputs.build-id }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+        run: bash packaging/repo/publish-r2.sh
